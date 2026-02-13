@@ -264,4 +264,4 @@ These are meant for reading/copying patterns into your app (they are not intende
 
 ## License
 
-MIT
+MIT (see [LICENSE](LICENSE))
