@@ -1,6 +1,6 @@
 {
   "name": "llm-meter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Token tracking, cost management, caching, and budget enforcement for LLM API calls (Node.js + TypeScript).",
   "license": "MIT",
   "author": "Amaresh Parida (https://amareshparida.com)",

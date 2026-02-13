@@ -37,14 +37,40 @@ const PRICING_DB: Record<string, ModelPricing> = {
   "gemini-1.5-flash": { inputPer1k: 0.000075, outputPer1k: 0.0003, provider: "google" }
 };
 
+function resolveModelPricingKey(model: string): string | undefined {
+  if (model in PRICING_DB) return model;
+
+  // Common patterns:
+  // - OpenAI: gpt-4o-mini-2024-07-18 (date suffix)
+  // - Anthropic: sometimes already versioned in the table (YYYYMMDD), but we also
+  //   try a fallback to the base id if present.
+  const stripDashDate = model.replace(/-\d{4}-\d{2}-\d{2}$/, "");
+  if (stripDashDate !== model && stripDashDate in PRICING_DB) return stripDashDate;
+
+  const stripCompactDate = model.replace(/-\d{8}$/, "");
+  if (stripCompactDate !== model && stripCompactDate in PRICING_DB) return stripCompactDate;
+
+  // Generic fallback: progressively strip trailing "-segment" pieces until we find a hit.
+  // This helps with provider-specific ids like "...-latest" or "...-2024-xx".
+  let cur = model;
+  while (cur.includes("-")) {
+    cur = cur.slice(0, cur.lastIndexOf("-"));
+    if (cur in PRICING_DB) return cur;
+  }
+
+  return undefined;
+}
+
 export function pricingFor(model: string): ModelPricing {
-  const price = PRICING_DB[model];
-  if (!price) {
+  const key = resolveModelPricingKey(model);
+  if (!key) {
     throw new UnknownModelError(
       `Model '${model}' not found in pricing database. Use defineModel() to add custom pricing.`
     );
   }
-  return { ...price };
+  // Cache alias for future lookups (fast path).
+  if (key !== model) PRICING_DB[model] = PRICING_DB[key]!;
+  return { ...PRICING_DB[key]! };
 }
 
 export function defineModel(
