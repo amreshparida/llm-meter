@@ -1,0 +1,45 @@
+{
+  "name": "llm-meter",
+  "version": "0.1.0",
+  "description": "Token tracking, cost management, caching, and budget enforcement for LLM API calls (Node.js + TypeScript).",
+  "license": "MIT",
+  "author": "Amaresh Parida (https://amareshparida.com)",
+  "homepage": "https://github.com/amreshparida/llm-meter#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amreshparida/llm-meter.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm test",
+    "test": "npm run build && node --test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  }
+}
+
