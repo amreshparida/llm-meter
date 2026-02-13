@@ -3,6 +3,9 @@ import { getCurrentCapLike } from "./als";
 import { estimateCostUsd } from "./rates";
 import { renderUsageTable, saveUsageCsv, saveUsageJson } from "./reporting";
 import { wrapAnthropic } from "./adapters/anthropicAdapter";
+import { wrapDeepSeek } from "./adapters/deepseekAdapter";
+import { wrapGemini } from "./adapters/googleAdapter";
+import { wrapGroq } from "./adapters/groqAdapter";
 import { wrapOpenAI } from "./adapters/openaiAdapter";
 
 export type UsageSummary = Readonly<{
@@ -208,6 +211,18 @@ export class LlmMeter {
 
   instrumentAnthropic<TClient extends object>(client: TClient): TClient {
     return wrapAnthropic(client, this) as unknown as TClient;
+  }
+
+  instrumentDeepSeek<TClient extends object>(client: TClient): TClient {
+    return wrapDeepSeek(client, this) as unknown as TClient;
+  }
+
+  instrumentGemini<TClient extends object>(client: TClient): TClient {
+    return wrapGemini(client, this) as unknown as TClient;
+  }
+
+  instrumentGroq<TClient extends object>(client: TClient): TClient {
+    return wrapGroq(client, this) as unknown as TClient;
   }
 }
 

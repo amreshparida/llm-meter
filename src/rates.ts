@@ -9,32 +9,48 @@ export type ModelPricing = {
 };
 
 // Pricing database (as of February 2026)
+// Notes:
+// - Stored as USD per 1k tokens (i.e. divide official "$/1M tokens" by 1000).
+// - These are best-effort "standard" text-token rates from provider pricing pages.
+// - Some providers vary pricing by context length / modality; we store the common
+//   baseline text rates for quick estimation.
 const PRICING_DB: Record<string, ModelPricing> = {
   // OpenAI models
+  // Latest stable family (keep small, commonly used defaults)
+  "gpt-5.2": { inputPer1k: 0.00175, outputPer1k: 0.014, provider: "openai" },
+  "gpt-5-mini": { inputPer1k: 0.00025, outputPer1k: 0.002, provider: "openai" },
+  // Widely used workhorses
+  "gpt-4.1-mini": { inputPer1k: 0.0004, outputPer1k: 0.0016, provider: "openai" },
   "gpt-4o": { inputPer1k: 0.0025, outputPer1k: 0.01, provider: "openai" },
   "gpt-4o-mini": { inputPer1k: 0.00015, outputPer1k: 0.0006, provider: "openai" },
-  "gpt-4-turbo": { inputPer1k: 0.01, outputPer1k: 0.03, provider: "openai" },
-  "gpt-4": { inputPer1k: 0.03, outputPer1k: 0.06, provider: "openai" },
-  "gpt-3.5-turbo": { inputPer1k: 0.0005, outputPer1k: 0.0015, provider: "openai" },
+  // Reasoning / o-series (stable + widely used)
   o1: { inputPer1k: 0.015, outputPer1k: 0.06, provider: "openai" },
-  "o1-mini": { inputPer1k: 0.003, outputPer1k: 0.012, provider: "openai" },
-  "o3-mini": { inputPer1k: 0.0011, outputPer1k: 0.0044, provider: "openai" },
+  o3: { inputPer1k: 0.002, outputPer1k: 0.008, provider: "openai" },
+  "o4-mini": { inputPer1k: 0.0011, outputPer1k: 0.0044, provider: "openai" },
 
   // Anthropic models
-  "claude-opus-4-5": { inputPer1k: 0.015, outputPer1k: 0.075, provider: "anthropic" },
-  "claude-opus-4-5-20251101": { inputPer1k: 0.015, outputPer1k: 0.075, provider: "anthropic" },
+  "claude-opus-4-5": { inputPer1k: 0.005, outputPer1k: 0.025, provider: "anthropic" },
   "claude-sonnet-4-5": { inputPer1k: 0.003, outputPer1k: 0.015, provider: "anthropic" },
-  "claude-sonnet-4-5-20250929": { inputPer1k: 0.003, outputPer1k: 0.015, provider: "anthropic" },
-  "claude-haiku-4-5": { inputPer1k: 0.0008, outputPer1k: 0.004, provider: "anthropic" },
-  "claude-haiku-4-5-20251001": { inputPer1k: 0.0008, outputPer1k: 0.004, provider: "anthropic" },
-  "claude-3-5-sonnet-20241022": { inputPer1k: 0.003, outputPer1k: 0.015, provider: "anthropic" },
-  "claude-3-opus-20240229": { inputPer1k: 0.015, outputPer1k: 0.075, provider: "anthropic" },
+  "claude-haiku-4-5": { inputPer1k: 0.001, outputPer1k: 0.005, provider: "anthropic" },
 
   // Google models
-  "gemini-2.0-flash": { inputPer1k: 0.0, outputPer1k: 0.0, provider: "google" },
-  "gemini-2.0-flash-exp": { inputPer1k: 0.0, outputPer1k: 0.0, provider: "google" },
-  "gemini-1.5-pro": { inputPer1k: 0.00125, outputPer1k: 0.005, provider: "google" },
-  "gemini-1.5-flash": { inputPer1k: 0.000075, outputPer1k: 0.0003, provider: "google" }
+  // Gemini 2.5 pricing can vary by prompt length; these are the <= 200k token rates.
+  "gemini-2.5-pro": { inputPer1k: 0.00125, outputPer1k: 0.01, provider: "google" },
+  "gemini-2.5-flash": { inputPer1k: 0.0003, outputPer1k: 0.0025, provider: "google" },
+  "gemini-2.5-flash-lite": { inputPer1k: 0.0001, outputPer1k: 0.0004, provider: "google" },
+  "gemini-2.0-flash": { inputPer1k: 0.0001, outputPer1k: 0.0004, provider: "google" },
+  "gemini-2.0-flash-lite": { inputPer1k: 0.000075, outputPer1k: 0.0003, provider: "google" },
+
+  // Groq (OpenAI-compatible API; production models)
+  "llama-3.1-8b-instant": { inputPer1k: 0.00005, outputPer1k: 0.00008, provider: "groq" },
+  "llama-3.3-70b-versatile": { inputPer1k: 0.00059, outputPer1k: 0.00079, provider: "groq" },
+  "openai/gpt-oss-20b": { inputPer1k: 0.000075, outputPer1k: 0.0003, provider: "groq" },
+  "openai/gpt-oss-120b": { inputPer1k: 0.00015, outputPer1k: 0.0006, provider: "groq" },
+
+  // DeepSeek (OpenAI-compatible API)
+  // Prices use the "cache miss" input rate + output rate (DeepSeek pricing varies with cache hits).
+  "deepseek-chat": { inputPer1k: 0.00027, outputPer1k: 0.0011, provider: "deepseek" },
+  "deepseek-reasoner": { inputPer1k: 0.00055, outputPer1k: 0.00219, provider: "deepseek" }
 };
 
 function resolveModelPricingKey(model: string): string | undefined {

@@ -2,6 +2,7 @@ import { estimateCostUsd } from "../rates";
 import { getCurrentCapLike } from "../als";
 import type { LlmMeter } from "../meter";
 import { BaseProvider } from "./baseAdapter";
+import { meterStream } from "../stream";
 
 function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
   return typeof (value as any)?.then === "function";
@@ -30,8 +31,37 @@ class MessagesWrapper {
   }
 
   create(...args: any[]): any {
-    const cache = this._parent.tracker.cacheStore?.();
     const request = args.length === 1 && args[0] && typeof args[0] === "object" ? args[0] : { args };
+    const isStreaming = (request as any)?.stream === true;
+
+    // Streaming responses: wrap AsyncIterable and record usage on completion (when available).
+    if (isStreaming) {
+      const resp = this._messages.create.apply(this._messages, args);
+      if (isPromiseLike(resp)) {
+        return Promise.resolve(resp).then((resolved) =>
+          (resolved && typeof (resolved as any)[Symbol.asyncIterator] === "function"
+            ? meterStream(resolved, this._parent.tracker, {
+                provider: "anthropic",
+                extract: (chunk: any) => {
+                  const { model, promptTokens, completionTokens } = extractAnthropicUsage(chunk);
+                  return { model, inputTokens: promptTokens, outputTokens: completionTokens };
+                }
+              })
+            : this._parent._trackResponse(resolved, false))
+        );
+      }
+      return resp && typeof (resp as any)[Symbol.asyncIterator] === "function"
+        ? meterStream(resp, this._parent.tracker, {
+            provider: "anthropic",
+            extract: (chunk: any) => {
+              const { model, promptTokens, completionTokens } = extractAnthropicUsage(chunk);
+              return { model, inputTokens: promptTokens, outputTokens: completionTokens };
+            }
+          })
+        : this._parent._trackResponse(resp, false);
+    }
+
+    const cache = this._parent.tracker.cacheStore?.();
 
     if (cache) {
       const key = cache.makeKey(request);

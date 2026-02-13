@@ -13,7 +13,8 @@ function bindIfFunction<T>(value: T, thisArg: any): T {
   return value;
 }
 
-function extractOpenAiUsage(response: any): { model: string; promptTokens: number; completionTokens: number } {
+function extractGroqUsage(response: any): { model: string; promptTokens: number; completionTokens: number } {
+  // Groq's OpenAI-compat API mirrors OpenAI usage fields.
   const model = response?.model ?? response?.data?.model ?? "unknown";
   const usage = response?.usage ?? response?.data?.usage;
   const promptTokens = usage?.prompt_tokens ?? usage?.promptTokens ?? 0;
@@ -23,9 +24,9 @@ function extractOpenAiUsage(response: any): { model: string; promptTokens: numbe
 
 class CompletionsWrapper {
   private readonly _completions: any;
-  private readonly _parent: OpenAIWrapper;
+  private readonly _parent: GroqWrapper;
 
-  constructor(completions: any, parent: OpenAIWrapper) {
+  constructor(completions: any, parent: GroqWrapper) {
     this._completions = completions;
     this._parent = parent;
   }
@@ -34,22 +35,17 @@ class CompletionsWrapper {
     const request = args.length === 1 && args[0] && typeof args[0] === "object" ? args[0] : { args };
     const isStreaming = (request as any)?.stream === true;
 
-    // Streaming responses: wrap AsyncIterable and record usage on completion (when available).
-    // Note: caching is bypassed for streams because caches store fully materialized responses.
+    // Streaming responses (OpenAI-compatible): wrap AsyncIterable and record usage on completion.
     if (isStreaming) {
       const resp = this._completions.create.apply(this._completions, args);
       if (isPromiseLike(resp)) {
         return Promise.resolve(resp).then((resolved) =>
           (resolved && typeof (resolved as any)[Symbol.asyncIterator] === "function"
             ? meterStream(resolved, this._parent.tracker, {
-                provider: "openai",
+                provider: "groq",
                 extract: (chunk: any) => {
-                  const { model, promptTokens, completionTokens } = extractOpenAiUsage(chunk);
-                  return {
-                    model,
-                    inputTokens: promptTokens,
-                    outputTokens: completionTokens
-                  };
+                  const { model, promptTokens, completionTokens } = extractGroqUsage(chunk);
+                  return { model, inputTokens: promptTokens, outputTokens: completionTokens };
                 }
               })
             : this._parent._trackResponse(resolved, false))
@@ -57,14 +53,10 @@ class CompletionsWrapper {
       }
       return resp && typeof (resp as any)[Symbol.asyncIterator] === "function"
         ? meterStream(resp, this._parent.tracker, {
-            provider: "openai",
+            provider: "groq",
             extract: (chunk: any) => {
-              const { model, promptTokens, completionTokens } = extractOpenAiUsage(chunk);
-              return {
-                model,
-                inputTokens: promptTokens,
-                outputTokens: completionTokens
-              };
+              const { model, promptTokens, completionTokens } = extractGroqUsage(chunk);
+              return { model, inputTokens: promptTokens, outputTokens: completionTokens };
             }
           })
         : this._parent._trackResponse(resp, false);
@@ -118,7 +110,7 @@ class ChatWrapper {
   private readonly _chat: any;
   completions: any;
 
-  constructor(chat: any, parent: OpenAIWrapper) {
+  constructor(chat: any, parent: GroqWrapper) {
     this._chat = chat;
     const completionsWrapper = new CompletionsWrapper(chat?.completions, parent);
     this.completions = new Proxy(completionsWrapper, {
@@ -130,7 +122,7 @@ class ChatWrapper {
   }
 }
 
-class OpenAIWrapper extends BaseProvider<object> {
+class GroqWrapper extends BaseProvider<object> {
   chat: any;
 
   constructor(client: any, meter: LlmMeter) {
@@ -145,7 +137,7 @@ class OpenAIWrapper extends BaseProvider<object> {
   }
 
   _trackResponse(response: any, fromCache: boolean): any {
-    const { model, promptTokens, completionTokens } = extractOpenAiUsage(response);
+    const { model, promptTokens, completionTokens } = extractGroqUsage(response);
 
     if (fromCache) {
       const savedCostUsd = estimateCostUsd(model, promptTokens, completionTokens);
@@ -155,7 +147,7 @@ class OpenAIWrapper extends BaseProvider<object> {
         model,
         inputTokens: promptTokens,
         outputTokens: completionTokens,
-        provider: "openai"
+        provider: "groq"
       });
     }
 
@@ -164,8 +156,8 @@ class OpenAIWrapper extends BaseProvider<object> {
   }
 }
 
-export function wrapOpenAI<TClient extends object>(client: TClient, meter: LlmMeter): TClient {
-  const wrapper = new OpenAIWrapper(client, meter);
+export function wrapGroq<TClient extends object>(client: TClient, meter: LlmMeter): TClient {
+  const wrapper = new GroqWrapper(client, meter);
   return new Proxy(wrapper as any, {
     get: (target, prop, receiver) => {
       if (prop in target) return Reflect.get(target, prop, receiver);

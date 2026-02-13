@@ -63,8 +63,11 @@ meter.clear(); // start a new accounting window
 
 ### Pricing & cost estimation
 
-Out of the box, `llm-meter` includes a small pricing table for common model IDs.
-You can also define your own.
+Out of the box, `llm-meter` includes a **small, curated pricing table** for **widely used + stable + current-generation** model IDs.
+
+It also handles **versioned model ids** returned by some APIs by falling back to the base id when possible (for example, `gpt-4o-mini-2024-07-18` → `gpt-4o-mini`).
+
+If a model isn’t in the built-in table (or your org has custom rates), define it yourself:
 
 ```ts
 import { defineModel, estimateCostUsd, pricingFor } from "llm-meter";
@@ -74,6 +77,8 @@ console.log(estimateCostUsd("gpt-4o", 1000, 500));
 
 defineModel("my-model", { inputPer1k: 0.001, outputPer1k: 0.002, provider: "my-llm" });
 ```
+
+Note: Some providers vary pricing by **modality** and/or **prompt length** (for example, Gemini has tiers based on context length). `llm-meter` uses best-effort baseline text-token rates for quick estimation.
 
 ### Spending caps (budget enforcement)
 
@@ -184,6 +189,46 @@ Caching is applied when you instrument a client (see next section). When an iden
 
 - OpenAI-like: `client.chat.completions.create(...)`
 - Anthropic-like: `client.messages.create(...)`
+- Gemini-like: `client.models.generateContent(...)`
+- Groq-like (OpenAI-compatible): `client.chat.completions.create(...)`
+- DeepSeek-like (OpenAI-compatible): `client.chat.completions.create(...)`
+
+#### End-to-end: OpenAI (real SDK usage)
+
+Install dependencies:
+
+```bash
+npm i llm-meter openai
+```
+
+Then instrument the OpenAI client and make calls as usual:
+
+```ts
+import OpenAI from "openai";
+import { LlmMeter, cap } from "llm-meter";
+
+const meter = new LlmMeter({
+  // optional but recommended in long-lived services
+  cache: { backend: "memory", maxEntries: 2_000, ttlMs: 10 * 60_000 }
+});
+
+const openai = meter.instrumentOpenAI(
+  new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+);
+
+await cap({ maxCostUsd: 0.05, meter }).run(async () => {
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [{ role: "user", content: "Write a haiku about TypeScript." }]
+  });
+
+  console.log(resp.choices?.[0]?.message?.content);
+});
+
+console.log("Totals:", meter.summary);
+console.log("Savings:", meter.savings);
+console.log(meter.tableReport());
+```
 
 ```ts
 import { LlmMeter } from "llm-meter";
@@ -195,6 +240,77 @@ const openai = meter.instrumentOpenAI(new OpenAI({ apiKey: process.env.OPENAI_AP
 
 await openai.chat.completions.create({
   model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "Hello" }]
+});
+
+console.log(meter.summary);
+```
+
+Gemini-like example (shape only):
+
+```ts
+import { LlmMeter } from "llm-meter";
+// Example shape: client.models.generateContent({ model, contents })
+
+const meter = new LlmMeter({ cache: "memory" });
+
+const geminiLike = {
+  models: {
+    generateContent: async () => ({
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
+    })
+  }
+};
+
+const gemini = meter.instrumentGemini(geminiLike);
+await gemini.models.generateContent({ model: "gemini-2.0-flash", contents: "hi" });
+
+console.log(meter.summary);
+```
+
+Groq example (OpenAI-compatible):
+
+```ts
+import { LlmMeter } from "llm-meter";
+import OpenAI from "openai";
+
+const meter = new LlmMeter({ cache: "memory" });
+
+// Groq is OpenAI-compatible. Use your Groq key + the Groq base URL.
+const groqClient = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1"
+});
+
+const groq = meter.instrumentGroq(groqClient);
+
+await groq.chat.completions.create({
+  model: "llama-3.1-8b-instant",
+  messages: [{ role: "user", content: "Hello" }]
+});
+
+console.log(meter.summary);
+```
+
+DeepSeek example (OpenAI-compatible):
+
+```ts
+import { LlmMeter } from "llm-meter";
+import OpenAI from "openai";
+
+const meter = new LlmMeter({ cache: "memory" });
+
+// DeepSeek is OpenAI-compatible. Use your DeepSeek key + DeepSeek base URL.
+// Depending on your OpenAI SDK version, you may need "https://api.deepseek.com/v1".
+const deepseekClient = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY,
+  baseURL: "https://api.deepseek.com"
+});
+
+const deepseek = meter.instrumentDeepSeek(deepseekClient);
+
+await deepseek.chat.completions.create({
+  model: "deepseek-chat",
   messages: [{ role: "user", content: "Hello" }]
 });
 
@@ -236,6 +352,68 @@ console.log(renderUsageTable(meter));
 meter.saveCsv("usage.csv");
 meter.saveJson("usage.json");
 ```
+
+### LangChain integration (callbacks)
+
+LangChain exposes callbacks that receive the final `LLMResult`, which typically includes **token usage** and often the **model id**. `llm-meter` ships a small helper that converts those callback events into `meter.record(...)` calls.
+
+This integration is **dependency-free** (you don’t need `langchain` installed to use `llm-meter`; you only need it in your app).
+
+```ts
+import { LlmMeter, createLangChainCallbacks } from "llm-meter";
+import { ChatOpenAI } from "@langchain/openai";
+
+const meter = new LlmMeter({ cache: "memory" });
+
+const callbacks = [
+  createLangChainCallbacks(meter, {
+    provider: "openai",
+    model: "gpt-4o-mini",
+    // If LangChain returns a model id we don't have pricing for:
+    // unknownModel: "zero"
+  })
+];
+
+const llm = new ChatOpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  model: "gpt-4o-mini",
+  callbacks
+});
+
+await llm.invoke("Say hello in one sentence.");
+
+console.log(meter.summary);
+console.log(meter.tableReport());
+```
+
+### LangGraph integration
+
+LangGraph runs are also **Runnable**-based and support passing `callbacks` through the invoke/stream config. You can use the same handler as LangChain; `llm-meter` also exports a convenience alias named `createLangGraphCallbacks`.
+
+```ts
+import { LlmMeter, createLangGraphCallbacks } from "llm-meter";
+import { StateGraph } from "@langchain/langgraph";
+
+const meter = new LlmMeter();
+const callbacks = [createLangGraphCallbacks(meter, { provider: "openai", model: "gpt-4o-mini" })];
+
+// ...build/compile your graph...
+const graph = new StateGraph({}).compile();
+
+await graph.invoke({ input: "hello" }, { callbacks });
+
+console.log(meter.summary);
+```
+
+### Streaming responses
+
+`llm-meter` supports streaming **when the stream eventually reports token usage**. The adapters will wrap AsyncIterable streams and record usage **once the stream completes**.
+
+Important notes:
+
+- Some SDKs/providers only include token usage in the **final** streaming chunk, and sometimes only when you enable a flag (for OpenAI Chat Completions streaming, set `stream_options: { include_usage: true }`).
+- If a stream never reports usage, `llm-meter` cannot count tokens/cost accurately (and will record nothing for that stream).
+- Caching is bypassed for streaming calls (caches store full responses, not streams).
 
 ## Examples
 

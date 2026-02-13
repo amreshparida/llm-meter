@@ -56,6 +56,94 @@ test("providers: anthropic wrapper tracks usage", () => {
   assert.equal(meter.summary.tokens, 150);
 });
 
+test("providers: gemini wrapper tracks usage + caching saves cost", () => {
+  const meter = new LlmMeter({ cache: "memory" });
+
+  const mockResponse = {
+    // Gemini responses often provide usageMetadata but not always a top-level model.
+    usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 }
+  };
+
+  const mockClient = {
+    models: {
+      generateContent: () => mockResponse
+    }
+  };
+
+  const wrapped = meter.instrumentGemini(mockClient);
+
+  wrapped.models.generateContent({ model: "gemini-2.0-flash", contents: [{ role: "user", parts: [{ text: "hi" }] }] });
+  assert.equal(meter.summary.calls, 1);
+  assert.equal(meter.summary.tokens, 150);
+  assert.equal(meter.breakdown.google.calls, 1);
+
+  // identical request: cache hit (no extra calls counted, but saved stats updated)
+  wrapped.models.generateContent({ model: "gemini-2.0-flash", contents: [{ role: "user", parts: [{ text: "hi" }] }] });
+  assert.equal(meter.summary.calls, 1);
+  assert.equal(meter.savings.hitCount, 1);
+  assert.ok(meter.savings.usdSaved > 0);
+});
+
+test("providers: groq wrapper tracks usage + caching saves cost", () => {
+  const meter = new LlmMeter({ cache: "memory" });
+
+  const mockResponse = {
+    model: "llama-3.1-8b-instant",
+    usage: { prompt_tokens: 100, completion_tokens: 50 }
+  };
+
+  const mockClient = {
+    chat: {
+      completions: {
+        create: () => mockResponse
+      }
+    }
+  };
+
+  const wrapped = meter.instrumentGroq(mockClient);
+
+  wrapped.chat.completions.create({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(meter.summary.calls, 1);
+  assert.equal(meter.summary.tokens, 150);
+  assert.equal(meter.breakdown.groq.calls, 1);
+
+  // identical request: cache hit (no extra calls counted, but saved stats updated)
+  wrapped.chat.completions.create({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(meter.summary.calls, 1);
+  assert.equal(meter.savings.hitCount, 1);
+  assert.ok(meter.savings.usdSaved > 0);
+});
+
+test("providers: deepseek wrapper tracks usage + caching saves cost", () => {
+  const meter = new LlmMeter({ cache: "memory" });
+
+  const mockResponse = {
+    model: "deepseek-chat",
+    usage: { prompt_tokens: 100, completion_tokens: 50 }
+  };
+
+  const mockClient = {
+    chat: {
+      completions: {
+        create: () => mockResponse
+      }
+    }
+  };
+
+  const wrapped = meter.instrumentDeepSeek(mockClient);
+
+  wrapped.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(meter.summary.calls, 1);
+  assert.equal(meter.summary.tokens, 150);
+  assert.equal(meter.breakdown.deepseek.calls, 1);
+
+  // identical request: cache hit (no extra calls counted, but saved stats updated)
+  wrapped.chat.completions.create({ model: "deepseek-chat", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(meter.summary.calls, 1);
+  assert.equal(meter.savings.hitCount, 1);
+  assert.ok(meter.savings.usdSaved > 0);
+});
+
 test("reports: table report + CSV/JSON exports", () => {
   const meter = new LlmMeter();
   meter.record({ model: "gpt-4o", inputTokens: 100, outputTokens: 50, provider: "openai" });
